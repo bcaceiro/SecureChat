@@ -1,7 +1,11 @@
 package client;
 
+import com.company.Cryptography;
+
+import javax.crypto.NoSuchPaddingException;
 import java.net.*;
 import java.io.*;
+import java.security.NoSuchAlgorithmException;
 
 @SuppressWarnings("deprecation")
 public class ChatClient implements Runnable {
@@ -12,7 +16,9 @@ public class ChatClient implements Runnable {
     private DataInputStream  console   = null;
     private DataOutputStream streamOut = null;
     private ChatClientThread client    = null;
-    
+
+    private Cryptography crypt;
+
     public ChatClient(String serverName, int serverPort) {
 
         System.out.println("Establishing connection to server...");
@@ -32,16 +38,20 @@ public class ChatClient implements Runnable {
     }
 
     public void run() {
-       while (thread != null) {
-           try {
+
+        String message;
+        while (thread != null) {
+            try {
                // Sends message from console to server
+
+
                streamOut.writeUTF(console.readLine());
                streamOut.flush();
-           } catch(IOException ioexception) {
+            } catch(IOException ioexception) {
                System.out.println("Error sending string to server: " + ioexception.getMessage());
                stop();
-           }
-       }
+            }
+        }
     }
 
 
@@ -62,6 +72,7 @@ public class ChatClient implements Runnable {
 
         console   = new DataInputStream(System.in);
         streamOut = new DataOutputStream(socket.getOutputStream());
+
 
         if (thread == null) {
             client = new ChatClientThread(this, socket);
@@ -107,8 +118,8 @@ public class ChatClient implements Runnable {
 }
 
 @SuppressWarnings("deprecation")
-class ChatClientThread extends Thread
-{  
+class ChatClientThread extends Thread {
+
     private Socket           socket   = null;
     private ChatClient       client   = null;
     private DataInputStream  streamIn = null;

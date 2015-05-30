@@ -105,7 +105,8 @@ public class ChatServer implements Runnable {
 			toTerminate.stop();
 		}
 	}
-    
+
+	/*Cria uma thread cada vez que um cliente se liga*/
 	private void addThread(Socket socket) {
 		if (clientCount < clients.length) {
 			// Adds thread for new accepted client
