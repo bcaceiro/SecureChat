@@ -1,11 +1,16 @@
 package client;
 
-import com.company.Cryptography;
 
-import javax.crypto.NoSuchPaddingException;
+import javax.crypto.*;
 import java.net.*;
 import java.io.*;
+import java.security.InvalidKeyException;
+import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.X509EncodedKeySpec;
+import javax.xml.bind.DatatypeConverter;
 
 @SuppressWarnings("deprecation")
 public class ChatClient implements Runnable {
@@ -17,7 +22,11 @@ public class ChatClient implements Runnable {
     private DataOutputStream streamOut = null;
     private ChatClientThread client    = null;
 
-    private Cryptography crypt;
+
+    private PublicKey serverPubKey;
+    private Cipher messageCipher;
+    private SecretKey secretKey;
+
 
     public ChatClient(String serverName, int serverPort) {
 
@@ -39,17 +48,39 @@ public class ChatClient implements Runnable {
 
     public void run() {
 
-        String message;
+        try {
+            messageCipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            messageCipher.init(Cipher.ENCRYPT_MODE, secretKey);
+
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (NoSuchPaddingException e) {
+            e.printStackTrace();
+        }
+
+        String plainText;
+        byte [] encryptedText;
+
         while (thread != null) {
             try {
                // Sends message from console to server
 
+               // Encrypt message to send
+                plainText = console.readLine();
+                encryptedText = messageCipher.doFinal(plainText.getBytes());
 
-               streamOut.writeUTF(console.readLine());
-               streamOut.flush();
+                streamOut.write(encryptedText);
+                streamOut.flush();
+
             } catch(IOException ioexception) {
                System.out.println("Error sending string to server: " + ioexception.getMessage());
                stop();
+            } catch (BadPaddingException e) {
+                e.printStackTrace();
+            } catch (IllegalBlockSizeException e) {
+                e.printStackTrace();
             }
         }
     }
@@ -73,6 +104,69 @@ public class ChatClient implements Runnable {
         console   = new DataInputStream(System.in);
         streamOut = new DataOutputStream(socket.getOutputStream());
 
+
+        //load server public key
+        File filePublicKey = new File("serverPub.key");
+        FileInputStream keyfos = new FileInputStream("serverPub.key");
+        byte[] serverPublicKey = new byte[(int) filePublicKey.length()];
+        keyfos.read(serverPublicKey);
+        keyfos.close();
+
+        try {
+
+            serverPubKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(serverPublicKey));
+
+            //System.out.println("SERVER PUB KEY: " + serverPubKey.toString());
+
+        } catch (InvalidKeySpecException e) {
+            e.printStackTrace();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+
+
+        //generate session key
+        KeyGenerator keyGen = null;
+        try {
+
+            keyGen = KeyGenerator.getInstance("AES");
+
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+
+        keyGen.init(256); // for example
+        secretKey = keyGen.generateKey();
+
+        //encrypt session key
+        Cipher cipher = null;
+        byte[] encryptedKey = null;
+        byte[] keyToEncrypt = secretKey.getEncoded();
+        //System.out.println("-> " + keyToEncrypt.length + "   " + keyToEncrypt.toString());
+
+        try {
+            cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, serverPubKey);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (NoSuchPaddingException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            encryptedKey = cipher.doFinal(keyToEncrypt);
+        } catch (IllegalBlockSizeException e) {
+            e.printStackTrace();
+        } catch (BadPaddingException e) {
+            e.printStackTrace();
+        }
+        System.out.println("Encryted Data: " + encryptedKey);
+        System.out.println("Secret Key: " + DatatypeConverter.printBase64Binary(keyToEncrypt));
+
+        //send session key to server
+        streamOut.write(encryptedKey);
 
         if (thread == null) {
             client = new ChatClientThread(this, socket);

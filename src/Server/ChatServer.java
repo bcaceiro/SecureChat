@@ -1,7 +1,11 @@
 package server;
 
+import javax.crypto.*;
+import javax.crypto.spec.SecretKeySpec;
+import javax.xml.bind.DatatypeConverter;
 import java.net.*;
 import java.io.*;
+import java.security.*;
 
 @SuppressWarnings("deprecation")
 public class ChatServer implements Runnable {
@@ -11,6 +15,15 @@ public class ChatServer implements Runnable {
 	private ServerSocket server_socket = null;
 	private Thread thread = null;
 	private int clientCount = 0;
+
+
+	private static KeyPair pair;
+	private static PrivateKey priv;
+	private static PublicKey pub;
+
+	public static PrivateKey getPriv() {
+		return priv;
+	}
 
 	public ChatServer(int port) {
 		try {
@@ -129,12 +142,46 @@ public class ChatServer implements Runnable {
 	public static void main(String args[]) {
 		ChatServer server = null;
 
-		if (args.length != 1)
+		if (args.length != 1) {
 			// Displays correct usage for server
 			System.out.println("Usage: java ChatServer port");
-		else
-			// Calls new server
-			server = new ChatServer(Integer.parseInt(args[0]));
+		}
+		else {
+
+
+			//Generate keys
+			try {
+				KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
+
+				SecureRandom random = SecureRandom.getInstance("SHA1PRNG");
+				keyGen.initialize(1024, random);
+
+
+				pair = keyGen.generateKeyPair();
+				priv = pair.getPrivate();
+				pub = pair.getPublic();
+
+				System.out.println("SERVER PUB KEY: " + pub.toString());
+
+
+				/* save the public key in a file */
+				byte[] key = pub.getEncoded();
+				FileOutputStream keyfos = new FileOutputStream("serverPub.key");
+				keyfos.write(key);
+				keyfos.close();
+
+				// Calls new server
+				server = new ChatServer(Integer.parseInt(args[0]));
+
+
+			} catch (NoSuchAlgorithmException e) {
+				e.printStackTrace();
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
 	}
 }
 
@@ -146,6 +193,8 @@ class ChatServerThread extends Thread {
     private int              ID        = -1;
     private DataInputStream  streamIn  =  null;
     private DataOutputStream streamOut = null;
+
+	private SecretKey clientSecretKey;
 
    
     public ChatServerThread(ChatServer _server, Socket _socket) {
@@ -179,8 +228,52 @@ class ChatServerThread extends Thread {
     // Runs thread
     public void run() {
         System.out.println("Server Thread " + ID + " running.");
-      
-        while (true) {
+
+		//Read client secret key
+		byte [] encryptedSecretKey = new byte[128];
+		try {
+
+			streamIn.read(encryptedSecretKey);
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		//System.out.println("---> " + encryptedSecretKey.toString());
+
+
+		//Decrypt received Key
+		Cipher cipher = null;
+		byte [] decryptedSecretKey = null;
+
+
+		try {
+
+			cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			cipher.init(Cipher.DECRYPT_MODE, server.getPriv());
+
+		} catch (NoSuchAlgorithmException e) {
+			e.printStackTrace();
+		} catch (NoSuchPaddingException e) {
+			e.printStackTrace();
+		} catch (InvalidKeyException e) {
+			e.printStackTrace();
+		}
+
+		try {
+			decryptedSecretKey = cipher.doFinal(encryptedSecretKey);
+		} catch (IllegalBlockSizeException e) {
+			e.printStackTrace();
+		} catch (BadPaddingException e) {
+			e.printStackTrace();
+		}
+		System.out.println("Secret Key: " + DatatypeConverter.printBase64Binary(decryptedSecretKey));
+
+		clientSecretKey = new SecretKeySpec(decryptedSecretKey, 0, decryptedSecretKey.length, "AES");
+
+
+
+
+		while (true) {
             try {
                 server.handle(ID, streamIn.readUTF());
             } catch(IOException ioe) {
